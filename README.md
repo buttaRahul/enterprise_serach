@@ -97,7 +97,7 @@ Once both the backend and frontend servers are running:
 
 ## Project Demonstration
 click the image to watch video demonstration
-[![Demo Video](images/thumbnail.png)](https://drive.google.com/file/d/1N8AhuJxB3-UqSjSu9m2nLz-xq0ZGHBOE/view?usp=sharing)
+[![Demo Video](images/demo.png)](https://drive.google.com/file/d/1N8AhuJxB3-UqSjSu9m2nLz-xq0ZGHBOE/view?usp=sharing)
 
 
 

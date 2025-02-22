@@ -1,0 +1,30 @@
+from fastapi import FastAPI
+from pydantic import BaseModel
+from typing import List
+from fastapi.middleware.cors import CORSMiddleware
+from llmHelper import getLlmResponse
+# from data import emails
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5174"],  
+    allow_credentials=True,
+    allow_methods=["*"],  
+    allow_headers=["*"],  
+)
+
+class UrlRequest(BaseModel):
+    query: str
+
+@app.post("/submit-query/")
+async def submit_urls(request: UrlRequest):
+    query = request.query
+    response = getLlmResponse(query)
+    
+    return {
+        "message": "Query received successfully",
+        "question": query,
+        "llm_response": response  
+    }

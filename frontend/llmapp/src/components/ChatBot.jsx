@@ -9,7 +9,7 @@ const ChatBot = () => {
 
     const handleSend = async () => {
         if (input.trim() === "") return;
-        
+
         const newMessages = [...messages, { sender: "user", text: input }];
         setMessages(newMessages);
         setInput("");
@@ -23,11 +23,11 @@ const ChatBot = () => {
                 },
                 body: JSON.stringify({ query: input })
             });
-            
+
             if (!response.ok) {
                 throw new Error("Failed to fetch response");
             }
-            
+
             const data = await response.json();
             setMessages((prev) => [...prev, { sender: "bot", text: data.llm_response }]);
         } catch (error) {
@@ -55,7 +55,8 @@ const ChatBot = () => {
                                 borderRadius: 2,
                                 my: 0.5,
                                 display: "inline-block",
-                                maxWidth: '80%'
+                                maxWidth: '80%',
+                                whiteSpace: "pre-wrap" // Preserves line breaks and spacing
                             }}
                         >
                             {msg.text}

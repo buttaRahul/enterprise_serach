@@ -14,6 +14,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings import HuggingFaceHubEmbeddings
 from langchain.vectorstores import FAISS
 import os
+import pymysql
 from data import emails
 
 def email_search(
@@ -78,6 +79,37 @@ def company_website_search(query: str) -> str:
     
     return "\n\n".join([doc.page_content for doc in similar_docs])
 
+
+def db_search(query: str) -> str:
+    """
+    Connects to the local MySQL database using pymysql and executes the provided SQL query.
+    """
+    try:
+        connection = pymysql.connect(
+            host="localhost",
+            user="root",
+            password="root",
+            database="employeedb",
+            cursorclass=pymysql.cursors.Cursor
+        )
+        
+        with connection.cursor() as cursor:
+            cursor.execute(query)
+            results = cursor.fetchall()
+            
+            # Format results as a string
+            result_str = "\n".join([str(row) for row in results])
+            print(result_str)
+            return result_str if result_str else "No results found."
+    
+    except pymysql.MySQLError as e:
+        return f"Error: {e}"
+    
+    finally:
+        connection.close()
+
+
+
 def getLlmResponse(query):
     load_dotenv()
     
@@ -98,14 +130,49 @@ def getLlmResponse(query):
         name="company_website_search",
         description="Searches the company website for relevant information based on the query."
     )
+
+    db_search_tool = Tool.from_function(
+        func=db_search,
+        name="db_search",
+        description="Executes an SQL query on the local MySQL database and retrieves the results."
+    )
+
     
     system_prompt = """
-        You are an intelligent assistant that helps users find emails, search the web, and search the company website.
-        Use the following guidelines:
-        1. First, analyze the user's query and break it down into its components.
-        2. Explain which tool will be used and why.
-        3. Use the appropriate tool to retrieve the information.
-        4. Provide a clear and concise response, including the breakdown of the query.
+        You are an intelligent assistant that helps users find emails, search the web, search the company website, and query a database. 
+        Always respond using the following structured format, ensuring **all steps are included**:
+
+        ---
+        ### **Response Format (Must Follow)**
+        1. **Query Breakdown**: Identify key components of the query.
+        2. **Function Used (Mandatory)**: Clearly specify which function is used (`email_search`, `web_search`, etc.).
+        3. **Reasoning & Processing Steps**: Explain **why** this function is used and how the query is handled.
+        4. **Final Search & Results**: Execute the function and return the output.
+
+        **Example Response:**
+        #### **Query Breakdown**
+        - The user is looking for emails from `ramesh@company.com`.
+
+        #### **Function Used (Mandatory)**
+        - Using `email_search` because the request is about finding emails.
+
+        #### **Reasoning & Processing Steps**
+        - We search the email database using the sender filter.
+        - Extract relevant emails based on the sender's address.
+
+        #### **Final Search & Results**
+        `{"action": "email_search", "action_input": {"sender": "ramesh@company.com"}}`
+
+        ---
+
+        ### **General Guidelines:**
+        - If the query involves emails, use `email_search`.
+        - If the query is about general knowledge, use `web_search`.
+        - If it's about the company, use `company_website_search`.
+        - If it contains an SQL statement, use `db_search`.
+        - If multiple actions are needed, **explain each step explicitly**.
+
+        **STRICT RULE**: **Always follow the 4-step response structure, or the response is invalid.**
     """
     
     few_shot_examples = [
@@ -119,6 +186,11 @@ def getLlmResponse(query):
         SystemMessage(content='{"action": "web_search", "action_input": {"query": "latest news on AI"}}'),
         HumanMessage(content="Search the company website for information on the latest product release"),
         SystemMessage(content='{"action": "company_website_search", "action_input": {"query": "latest product release"}}'),
+        HumanMessage(content="Run this sql query select firstname,email from employee"),
+        SystemMessage(content='{"action": "db_search", "action_input": {"query": "select firstname,email from employee"}}'),
+        HumanMessage(content="Find emails related to bugs or issues and search online to find solutions for them"),
+        SystemMessage(content='{"action": "multi_action", "action_input": [{"action": "email_search", "action_input": {"email_content": "bugs OR issues"}}, {"action": "web_search", "action_input": {"query": "<CONTENT_FROM_RETRIEVED_EMAILS>"}}]}'),
+
     ]
     
     llm = ChatGoogleGenerativeAI(
@@ -128,22 +200,30 @@ def getLlmResponse(query):
         examples=few_shot_examples
     )
     
-    tools = [email_search_tool, web_search_tool, company_website_search_tool]
+    tools = [email_search_tool, web_search_tool, company_website_search_tool, db_search_tool]
     
     agent = initialize_agent(
         tools=tools,
         llm=llm,
         agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
         verbose=True,
-        handle_parsing_errors=True
+        handle_parsing_errors=True,
+        return_intermediate_steps=True
     )
     
-    response = agent.run(
+    response = agent.invoke(
         f"""
-        Analyze the following query and break it down into its components.
-        Explain which tool will be used and why. Then, proceed with the search and include the breakdown in the final response.
-        Query: {query}
+            **STRICT FORMAT REQUIRED** - Your final response **must** include:
+            
+            1. **Query Breakdown:** (Identify key components)
+            2. **Function Used (Mandatory):** (List all functions used)
+            3. **Reasoning & Processing Steps:** (Detailed breakdown)
+            4. **Final Search & Results:** (Provide the final answer based on processed data)
+            
+            **Do not skip any step.** Even if the final result is computed, explicitly include all breakdown steps.
+            
+            Query: {query}
         """
     )
-    
-    return response
+    print(response['output'])
+    return response['output']

@@ -56,7 +56,7 @@ const ChatBot = () => {
                                 my: 0.5,
                                 display: "inline-block",
                                 maxWidth: '80%',
-                                whiteSpace: "pre-wrap" // Preserves line breaks and spacing
+                                whiteSpace: "pre-wrap" 
                             }}
                         >
                             {msg.text}

@@ -11,27 +11,44 @@ from sentence_transformers import SentenceTransformer
 from langchain.agents import initialize_agent, AgentType
 from langchain.document_loaders import UnstructuredURLLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_core.tools import StructuredTool
 from langchain.embeddings import HuggingFaceHubEmbeddings
+from pydantic import BaseModel, Field
 from langchain.vectorstores import FAISS
 import os
 import pymysql
 from data import emails
+import json
+
+
+class EmailSearchInput(BaseModel):
+    sender: Optional[str] = Field(None, description="Email sender's address")
+    email_content: Optional[str] = Field(None, description="Search text within email content")
+    timestamp: Optional[str] = Field(None, description="Timestamp in 'YYYY-MM-DD HH:MM:SS' format")
+
+class DBSearchInput(BaseModel):
+    query: str = Field(..., description="SQL query to execute")
+    database: Optional[str] = Field("employee", description="Database name (default: 'employeedb')")
+
 
 def email_search(
-    email_content: Optional[str] = None,
     sender: Optional[str] = None,
+    email_content: Optional[str] = None,
     timestamp: Optional[str] = None,
     similarity_threshold: float = 0.25
 ) -> List[dict]:
     if not any([email_content, sender, timestamp]):
         raise ValueError("At least one parameter (email_content, sender, or timestamp) must be provided.")
     
-    results = emails  
-    
+    results = emails 
+
+    print("*************SENDER************************", sender)
+    print("*************EMAIL CONTENT************************", email_content)
+
     if sender:
         sender = sender.strip().lower()
         results = [email for email in emails if email['sender'].strip().lower() == sender]
-    
+
     if timestamp:
         try:
             target_timestamp = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
@@ -41,15 +58,21 @@ def email_search(
             ]
         except ValueError:
             raise ValueError("Timestamp must be in the format 'YYYY-MM-DD HH:MM:SS'.")
-    
+
     if email_content and results:
         model = SentenceTransformer('all-MiniLM-L6-v2')
         query_embedding = model.encode(email_content, convert_to_numpy=True)
         email_embeddings = model.encode([email['content'] for email in results], convert_to_numpy=True)
         similarities = cosine_similarity(query_embedding.reshape(1, -1), email_embeddings).flatten()
-        results = [email for email, sim in zip(results, similarities) if sim >= similarity_threshold]
-    
+        filtered_results = [email for email, sim in zip(results, similarities) if sim >= similarity_threshold]
+        results = "\n\n".join([
+            f"Timestamp: {email['timestamp']}\nSender: {email['sender']}\nContent: {email['content']}"
+            for email in filtered_results
+        ])
+   
+    print("TYPE:",type(results))
     return results
+
 
 def web_search(query: str) -> str:
     search = DuckDuckGoSearchRun()
@@ -80,43 +103,52 @@ def company_website_search(query: str) -> str:
     return "\n\n".join([doc.page_content for doc in similar_docs])
 
 
-def db_search(query: str) -> str:
+def db_search(input_data: DBSearchInput) -> str:
     """
-    Connects to the local MySQL database using pymysql and executes the provided SQL query.
+    Executes an SQL query on a MySQL database.
+    
+    Parameters:
+    - input_data (DBSearchInput): Pydantic model containing query and optional database name.
+
+    Returns:
+    - str: Query result or error message.
     """
+    
+    print("DATABASE", input_data.database)
+    print("QUERY", input_data.query)
+
+    connection = None  # Initialize connection to avoid UnboundLocalError
+
     try:
         connection = pymysql.connect(
             host="localhost",
             user="root",
             password="root",
-            database="employeedb",
-            cursorclass=pymysql.cursors.Cursor
+            database=input_data.database,
+            cursorclass=pymysql.cursors.DictCursor
         )
-        
-        with connection.cursor() as cursor:
-            cursor.execute(query)
-            results = cursor.fetchall()
-            
-            # Format results as a string
-            result_str = "\n".join([str(row) for row in results])
-            print(result_str)
-            return result_str if result_str else "No results found."
-    
-    except pymysql.MySQLError as e:
-        return f"Error: {e}"
-    
-    finally:
-        connection.close()
 
+        with connection.cursor() as cursor:
+            cursor.execute(input_data.query)
+            results = cursor.fetchall()
+            return ", ".join(str(row)[1:-1] for row in results) if results else "No results found."
+
+    except pymysql.MySQLError as e:
+        return f"Database Error: {e}"
+
+    finally:
+        if connection:  
+            connection.close()
 
 
 def getLlmResponse(query):
     load_dotenv()
     
-    email_search_tool = Tool.from_function(
+    email_search_tool = StructuredTool.from_function(
         func=email_search,
         name="email_search",
-        description="Searches through emails to locate messages based on content, sender, or timestamp."
+        description="Searches emails by sender, content, or timestamp.",
+        args_schema=EmailSearchInput
     )
     
     web_search_tool = Tool.from_function(
@@ -131,10 +163,11 @@ def getLlmResponse(query):
         description="Searches the company website for relevant information based on the query."
     )
 
-    db_search_tool = Tool.from_function(
-        func=db_search,
+    db_search_tool = StructuredTool.from_function(
+        func=lambda query, database="employeedb": db_search(DBSearchInput(query=query, database=database)),
         name="db_search",
-        description="Executes an SQL query on the local MySQL database and retrieves the results."
+        description="Executes an SQL query on a specified database. Defaults to 'employeedb'.",
+        args_schema=DBSearchInput,
     )
 
     
@@ -226,4 +259,6 @@ def getLlmResponse(query):
         """
     )
     print(response['output'])
-    return response['output']
+    # print("RESPONSE TYPE:" , type(response['output']))
+    final_response = response['output']
+    return f'"""{str(final_response)}"""'

@@ -1,10 +1,11 @@
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.schema import SystemMessage, HumanMessage
-from langchain.tools import Tool
+from langchain_core.tools import Tool
 from typing import List, Optional
 from sklearn.metrics.pairwise import cosine_similarity
 from langchain_community.tools import DuckDuckGoSearchRun
+from langchain_community.tools import DuckDuckGoSearchResults
 import numpy as np
 from datetime import datetime
 from sentence_transformers import SentenceTransformer
@@ -31,51 +32,58 @@ class DBSearchInput(BaseModel):
     database: Optional[str] = Field("employee", description="Database name (default: 'employeedb')")
 
 
+def retrieve_similar_email(query, key, emails, similarity_threshold):
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+    query_embedding = model.encode(query, convert_to_numpy=True)
+    email_values = [email[key] for email in emails]
+    
+    if email_values:
+        email_embeddings = model.encode(email_values, convert_to_numpy=True)
+        similarities = cosine_similarity(query_embedding.reshape(1, -1), email_embeddings).flatten()
+        return [email for email, sim in zip(emails, similarities) if sim >= similarity_threshold]
+    
+    return []
+    
+
+
+
+
 def email_search(
     sender: Optional[str] = None,
     email_content: Optional[str] = None,
     timestamp: Optional[str] = None,
     similarity_threshold: float = 0.25
 ) -> List[dict]:
+    "Retrieves relevant emails based on the input query"
     if not any([email_content, sender, timestamp]):
         raise ValueError("At least one parameter (email_content, sender, or timestamp) must be provided.")
     
-    results = emails 
-
-    print("*************SENDER************************", sender)
-    print("*************EMAIL CONTENT************************", email_content)
-
-    if sender:
-        sender = sender.strip().lower()
-        results = [email for email in emails if email['sender'].strip().lower() == sender]
-
+    filtered_emails = emails if not sender else [
+        email for email in emails if email['sender'].strip().lower() == sender.strip().lower()
+    ]
+    
+    if sender and not filtered_emails:
+        filtered_emails = retrieve_similar_email(sender, 'sender', emails, similarity_threshold)
+    
     if timestamp:
         try:
             target_timestamp = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
-            results = [
-                email for email in results
+            filtered_emails = [
+                email for email in (filtered_emails or emails)
                 if datetime.strptime(email['timestamp'], "%Y-%m-%d %H:%M:%S") == target_timestamp
             ]
         except ValueError:
             raise ValueError("Timestamp must be in the format 'YYYY-MM-DD HH:MM:SS'.")
 
-    if email_content and results:
-        model = SentenceTransformer('all-MiniLM-L6-v2')
-        query_embedding = model.encode(email_content, convert_to_numpy=True)
-        email_embeddings = model.encode([email['content'] for email in results], convert_to_numpy=True)
-        similarities = cosine_similarity(query_embedding.reshape(1, -1), email_embeddings).flatten()
-        filtered_results = [email for email, sim in zip(results, similarities) if sim >= similarity_threshold]
-        results = "\n\n".join([
-            f"Timestamp: {email['timestamp']}\nSender: {email['sender']}\nContent: {email['content']}"
-            for email in filtered_results
-        ])
-   
-    print("TYPE:",type(results))
-    return results
-
+    if email_content:
+        filtered_emails = retrieve_similar_email(email_content, 'content', filtered_emails or emails, similarity_threshold)
+    
+    # print("TYPE:", type(filtered_emails))
+    return filtered_emails
 
 def web_search(query: str) -> str:
-    search = DuckDuckGoSearchRun()
+    # search = DuckDuckGoSearchRun()
+    search = DuckDuckGoSearchResults()
     return search.run(query)
 
 def company_website_search(query: str) -> str:
@@ -241,7 +249,7 @@ def getLlmResponse(query):
         agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
         verbose=True,
         handle_parsing_errors=True,
-        return_intermediate_steps=True
+        # return_intermediate_steps=True
     )
     
     response = agent.invoke(
@@ -253,6 +261,7 @@ def getLlmResponse(query):
             3. **Reasoning & Processing Steps:** (Detailed breakdown)
             4. **Final Search & Results:** (Provide the final answer based on processed data)
             
+            Whenever web_search tool is used include the sources in the final result
             **Do not skip any step.** Even if the final result is computed, explicitly include all breakdown steps.
             
             Query: {query}

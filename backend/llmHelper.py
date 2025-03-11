@@ -25,7 +25,9 @@ import json
 class EmailSearchInput(BaseModel):
     sender: Optional[str] = Field(None, description="Email sender's address")
     email_content: Optional[str] = Field(None, description="Search text within email content")
-    timestamp: Optional[str] = Field(None, description="Timestamp in 'YYYY-MM-DD HH:MM:SS' format")
+    timestamp: Optional[str] = Field(None, description="Timestamp in 'YYYY-MM-DD' format")
+    before: Optional[bool] = Field(None, description="If True, find emails before the given date")
+    after: Optional[bool] = Field(None, description="If True, find emails after the given date")
 
 class DBSearchInput(BaseModel):
     query: str = Field(..., description="SQL query to execute")
@@ -52,6 +54,8 @@ def email_search(
     sender: Optional[str] = None,
     email_content: Optional[str] = None,
     timestamp: Optional[str] = None,
+    before: Optional[bool] = None,
+    after: Optional[bool] = None,
     similarity_threshold: float = 0.25
 ) -> List[dict]:
     "Retrieves relevant emails based on the input query"
@@ -67,18 +71,28 @@ def email_search(
     
     if timestamp:
         try:
-            target_timestamp = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
-            filtered_emails = [
-                email for email in (filtered_emails or emails)
-                if datetime.strptime(email['timestamp'], "%Y-%m-%d %H:%M:%S") == target_timestamp
-            ]
+            target_date = datetime.strptime(timestamp, "%Y-%m-%d").date()
+            if before:
+                filtered_emails = [
+                    email for email in (filtered_emails or emails)
+                    if datetime.strptime(email['timestamp'], "%Y-%m-%d %H:%M:%S").date() < target_date
+                ]
+            elif after:
+                filtered_emails = [
+                    email for email in (filtered_emails or emails)
+                    if datetime.strptime(email['timestamp'], "%Y-%m-%d %H:%M:%S").date() > target_date
+                ]
+            else:  # Default case: Exact date match
+                filtered_emails = [
+                    email for email in (filtered_emails or emails)
+                    if datetime.strptime(email['timestamp'], "%Y-%m-%d %H:%M:%S").date() == target_date
+                ]
         except ValueError:
-            raise ValueError("Timestamp must be in the format 'YYYY-MM-DD HH:MM:SS'.")
+            raise ValueError("Timestamp must be in 'YYYY-MM-DD' format.")
 
     if email_content:
         filtered_emails = retrieve_similar_email(email_content, 'content', filtered_emails or emails, similarity_threshold)
     
-    # print("TYPE:", type(filtered_emails))
     return filtered_emails
 
 def web_search(query: str) -> str:
@@ -125,7 +139,7 @@ def db_search(input_data: DBSearchInput) -> str:
     print("DATABASE", input_data.database)
     print("QUERY", input_data.query)
 
-    connection = None  # Initialize connection to avoid UnboundLocalError
+    connection = None  
 
     try:
         connection = pymysql.connect(
@@ -219,6 +233,16 @@ def getLlmResponse(query):
     few_shot_examples = [
         HumanMessage(content="Find emails from ramesh@company.com"),
         SystemMessage(content='{"action": "email_search", "action_input": {"sender": "ramesh@company.com"}}'),
+        HumanMessage(content="get me the emails which are sent on 18-02-2025"),
+        SystemMessage(content='{"action": "email_search", "action_input": {"timestamp": "2025-02-18"}}'),
+        HumanMessage(content="get me the emails which are sent on 18th February 2025"),
+        SystemMessage(content='{"action": "email_search", "action_input": {"timestamp": "2025-02-18"}}'),
+        HumanMessage(content="Get me emails which are sent before 18th February 2025"),
+        SystemMessage(content='{"action": "email_search", "action_input": {"timestamp": "2025-02-18", "before": true}}'),
+        HumanMessage(content="Get me emails which are sent earlier than 18th February 2025"),
+        SystemMessage(content='{"action": "email_search", "action_input": {"timestamp": "2025-02-18", "before": true}}'),
+        HumanMessage(content="Get me emails which are sent after 18th February 2025"),
+        SystemMessage(content='{"action": "email_search", "action_input": {"timestamp": "2025-02-18", "after": true}}'),
         HumanMessage(content="Find the emails related to pull request"),
         SystemMessage(content='{"action": "email_search", "action_input": {"email_content": "pull request"}}'),
         HumanMessage(content="Find emails sent on 2025-02-21 10:05:14"),
@@ -260,7 +284,9 @@ def getLlmResponse(query):
             2. **Function Used (Mandatory):** (List all functions used)
             3. **Reasoning & Processing Steps:** (Detailed breakdown)
             4. **Final Search & Results:** (Provide the final answer based on processed data)
-            
+
+            Use the few shot examples to choose which tool to select
+
             Whenever web_search tool is used include the sources in the final result
             **Do not skip any step.** Even if the final result is computed, explicitly include all breakdown steps.
             

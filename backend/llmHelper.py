@@ -6,6 +6,7 @@ from typing import List, Optional
 from sklearn.metrics.pairwise import cosine_similarity
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_community.tools import DuckDuckGoSearchResults
+from transformers import AutoModel
 import numpy as np
 from datetime import datetime
 from sentence_transformers import SentenceTransformer
@@ -35,7 +36,8 @@ class DBSearchInput(BaseModel):
 
 
 def retrieve_similar_email(query, key, emails, similarity_threshold):
-    model = SentenceTransformer('all-MiniLM-L6-v2')
+    model = SentenceTransformer('Lajavaness/bilingual-embedding-small', trust_remote_code=True)
+    # print(model)
     query_embedding = model.encode(query, convert_to_numpy=True)
     email_values = [email[key] for email in emails]
     
@@ -56,7 +58,7 @@ def email_search(
     timestamp: Optional[str] = None,
     before: Optional[bool] = None,
     after: Optional[bool] = None,
-    similarity_threshold: float = 0.25
+    similarity_threshold: float = 0.6
 ) -> List[dict]:
     "Retrieves relevant emails based on the input query"
     if not any([email_content, sender, timestamp]):
@@ -82,7 +84,7 @@ def email_search(
                     email for email in (filtered_emails or emails)
                     if datetime.strptime(email['timestamp'], "%Y-%m-%d %H:%M:%S").date() > target_date
                 ]
-            else:  # Default case: Exact date match
+            else:  
                 filtered_emails = [
                     email for email in (filtered_emails or emails)
                     if datetime.strptime(email['timestamp'], "%Y-%m-%d %H:%M:%S").date() == target_date
@@ -111,10 +113,11 @@ def company_website_search(query: str) -> str:
     )
     
     docs = text_splitter.split_documents(data)
-    model = "sentence-transformers/all-mpnet-base-v2"
+    
+    # model = AutoModel.from_pretrained('Lajavaness/bilingual-embedding-small', trust_remote_code=True)
     hf_token = os.getenv("HUGGINGFACE_API_KEY")
     embeddings = HuggingFaceHubEmbeddings(
-        model=model,
+        model = "sentence-transformers/all-MiniLM-L6-v2",
         task="feature-extraction",
         huggingfacehub_api_token=hf_token,
     )

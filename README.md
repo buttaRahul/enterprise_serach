@@ -1,6 +1,6 @@
 # Enterprise search
 
-This project implements an AI-powered search solution for organizations, enabling a unified search across multiple sources like web, databases, company websites, and emails. Built on RAG and LLM, it intelligently processes queries to retrieve and generate relevant responses. Efficient, and context-aware, it streamlines information access for employees.
+This project implements an AI search solution for organizations, enabling a unified search across multiple sources like web, databases, company websites, and emails. Built on RAG and LLM, it intelligently processes queries to retrieve and generate relevant responses. Efficient, and context-aware, it streamlines information access for employees.
 ---
 
 ## Getting Started

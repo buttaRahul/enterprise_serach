@@ -110,11 +110,18 @@ def route_after_reflect(state: GraphState):
 
     wave: int = state.get("wave", 0)
     pending: list[Step] = state.get("pending_steps", [])
+    evidence: list[Evidence] = state.get("evidence") or []
 
-    # Dispatch wave-1 dependent steps OR retry steps
+    # Dispatch wave-1 dependent steps OR retry steps, with context from prior steps
     if wave == 1 and pending:
         return [
-            Send(SOURCE_NODE[s.source], {"step": s.model_dump()})
+            Send(
+                SOURCE_NODE[s.source],
+                {
+                    "step": s.model_dump(),
+                    "context": _evidence_summary(evidence, s.depends_on) if s.depends_on else "",
+                },
+            )
             for s in pending
         ]
     return "synthesize"

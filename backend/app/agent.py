@@ -1,10 +1,11 @@
 """v1 ReAct agent — kept as the eval baseline behind AGENT_MODE=react."""
 from __future__ import annotations
+import json
 import time
 from typing import Any
 
-from langchain_core.messages import SystemMessage
-from langchain.agents import AgentType, initialize_agent
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.tools import StructuredTool
 
 
 SYSTEM_PROMPT = """\
@@ -19,41 +20,65 @@ For each query:
 Always cite sources where possible. Never make up information not found in the tools.
 """
 
+_MAX_TURNS = 6
+
 
 def run_agent(query: str, services, llm, *, config: dict | None = None) -> dict:
     """
-    Run the v1 ReAct agent.
+    Run the v1 ReAct agent using a simple tool-calling loop over langchain_core.
 
     Returns {"answer": str, "trace": list[dict]}.
     """
     from app.tools import build_tools
 
-    tools = build_tools(services)
-    agent = initialize_agent(
-        tools=tools,
-        llm=llm,
-        agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
-        verbose=False,
-        handle_parsing_errors=True,
-        return_intermediate_steps=True,
-    )
+    lc_tools: list[StructuredTool] = build_tools(services)
+    tool_map = {t.name: t for t in lc_tools}
 
-    t0 = time.perf_counter()
-    try:
-        resp: dict[str, Any] = agent.invoke(query)
-    except Exception as exc:
-        return {"answer": f"Error: {exc}", "trace": []}
+    # llm here is our LLMProtocol wrapper; get the underlying chat model
+    chat = llm._model if hasattr(llm, "_model") else llm
+    bound = chat.bind_tools(lc_tools)
 
-    elapsed_ms = int((time.perf_counter() - t0) * 1000)
-
-    trace = [
-        {
-            "node": "react",
-            "tool": step[0].tool,
-            "tool_input": step[0].tool_input,
-            "ms": elapsed_ms,
-        }
-        for step in resp.get("intermediate_steps", [])
+    messages: list[Any] = [
+        SystemMessage(content=SYSTEM_PROMPT),
+        HumanMessage(content=query),
     ]
 
-    return {"answer": resp.get("output", ""), "trace": trace}
+    t0 = time.perf_counter()
+    trace: list[dict] = []
+
+    for _ in range(_MAX_TURNS):
+        try:
+            response: AIMessage = bound.invoke(messages)
+        except Exception as exc:
+            return {"answer": f"Error: {exc}", "trace": trace}
+
+        messages.append(response)
+
+        if not response.tool_calls:
+            break
+
+        for tc in response.tool_calls:
+            tool = tool_map.get(tc["name"])
+            if tool is None:
+                result = f"Unknown tool: {tc['name']}"
+            else:
+                try:
+                    result = tool.invoke(tc["args"])
+                except Exception as exc:
+                    result = f"Tool error: {exc}"
+
+            trace.append({
+                "node": "react",
+                "tool": tc["name"],
+                "tool_input": tc["args"],
+                "ms": int((time.perf_counter() - t0) * 1000),
+            })
+            messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+
+    answer = ""
+    for msg in reversed(messages):
+        if isinstance(msg, AIMessage) and not msg.tool_calls and msg.content:
+            answer = msg.content
+            break
+
+    return {"answer": answer, "trace": trace}

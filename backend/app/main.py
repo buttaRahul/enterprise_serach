@@ -29,10 +29,8 @@ class ChatRequest(BaseModel):
 
 class FeedbackRequest(BaseModel):
     thread_id: str
-    question: str = ""
-    sql: str = ""
     rating: str  # "up" | "down"
-    correction: Optional[str] = None
+    correction: Optional[str] = None  # required for "down", optional for "up"
 
 
 # ---------------------------------------------------------------------------
@@ -67,17 +65,12 @@ def create_app(services=None, llm=None, settings: Settings = _default_settings) 
         _state["feedback"] = FeedbackStore(settings.feedback_db_path)
 
         if settings.agent_mode == "graph":
-            from langgraph.checkpoint.memory import InMemorySaver
             from app.graph.build import build_graph
 
-            try:
-                from langgraph_checkpoint_sqlite import AsyncSqliteSaver
-                os.makedirs(os.path.dirname(settings.checkpoint_path), exist_ok=True)
-                checkpointer = await AsyncSqliteSaver.from_conn_string(settings.checkpoint_path).__aenter__()
-                _state["_checkpointer_ctx"] = checkpointer
-            except Exception:
-                checkpointer = InMemorySaver()
-                _state["_checkpointer_ctx"] = None
+            from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+            os.makedirs(os.path.dirname(os.path.abspath(settings.checkpoint_path)), exist_ok=True)
+            checkpointer = await AsyncSqliteSaver.from_conn_string(settings.checkpoint_path).__aenter__()
+            _state["_checkpointer_ctx"] = checkpointer
 
             _state["graph"] = build_graph(
                 _state["services"], _state["llm"],
@@ -199,11 +192,33 @@ def create_app(services=None, llm=None, settings: Settings = _default_settings) 
         store = _state.get("feedback")
         if store is None:
             raise HTTPException(500, "Feedback store not initialised")
+
+        if req.rating not in ("up", "down"):
+            raise HTTPException(400, "rating must be 'up' or 'down'")
+
+        # Read question and SQL from the saved thread state — never trust the client
+        graph = _state.get("graph")
+        question = ""
+        sql = ""
+        if graph is not None:
+            cfg = {"configurable": {"thread_id": req.thread_id, "workspace_id": settings.workspace_id}}
+            try:
+                thread_state = await graph.aget_state(cfg)
+                vals = thread_state.values if thread_state else {}
+                question = vals.get("query", "")
+                for ev in (vals.get("evidence") or []):
+                    src = ev.source if hasattr(ev, "source") else ev.get("source")
+                    if src == "sql":
+                        sql = (ev.title if hasattr(ev, "title") else ev.get("title")) or ""
+                        break
+            except Exception:
+                pass
+
         rec = FeedbackRecord(
             workspace_id=settings.workspace_id,
             thread_id=req.thread_id,
-            question=req.question,
-            sql=req.sql,
+            question=question,
+            sql=sql,
             correction=req.correction or "",
             rating=req.rating,
         )
@@ -278,9 +293,18 @@ def _build_services(settings: Settings):
         emails = _json.load(f)
     email_index = EmailIndex(emails, default_embedder)
 
-    # Database
+    # Database — read-only, with allowlist and forbidden-column enforcement
     db_path = settings.database_path
-    database = Database(db_path) if os.path.exists(db_path) else None
+    database = (
+        Database(
+            db_path,
+            allowed_tables=settings.sql_allowed_tables or None,
+            forbidden_columns=settings.sql_forbidden_columns or None,
+            max_rows=100,
+        )
+        if os.path.exists(db_path)
+        else None
+    )
 
     # Company site
     company_site = None
@@ -297,7 +321,7 @@ def _build_llm(settings: Settings):
 
 
 # ---------------------------------------------------------------------------
-# WSGI entry-point
+# WSGI entry-point  (not executed during test imports)
 # ---------------------------------------------------------------------------
 
-app = create_app()
+app = create_app()  # noqa: E402 — module-level singleton for uvicorn

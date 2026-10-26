@@ -133,11 +133,10 @@ function EvidenceCard({ item }) {
 
 // ── Feedback ──────────────────────────────────────────────────────────────────
 
-function FeedbackRow({ threadId, question, evidence }) {
+function FeedbackRow({ threadId }) {
   const [rating, setRating] = useState(null);
   const [showCorrection, setShowCorrection] = useState(false);
   const inputRef = useRef();
-  const sqlEvidence = (evidence || []).find(e => e.source === 'sql');
 
   const submit = async (r) => {
     if (rating) return;
@@ -146,7 +145,7 @@ function FeedbackRow({ threadId, question, evidence }) {
     await fetch(`${API}/api/feedback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ thread_id: threadId, question, sql: sqlEvidence?.sql || '', rating: r }),
+      body: JSON.stringify({ thread_id: threadId, rating: r }),
     }).catch(() => {});
   };
 
@@ -156,7 +155,7 @@ function FeedbackRow({ threadId, question, evidence }) {
     await fetch(`${API}/api/feedback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ thread_id: threadId, question, sql: sqlEvidence?.sql || '', rating: 'down', correction }),
+      body: JSON.stringify({ thread_id: threadId, rating: 'down', correction }),
     }).catch(() => {});
   };
 
@@ -341,7 +340,7 @@ function MessageBubble({ msg, threadId }) {
           {!isUser && !msg.streaming && (
             <>
               <TracePills trace={msg.trace} />
-              {!isClarify && <FeedbackRow threadId={threadId} question={msg.question} evidence={msg.evidence} />}
+              {!isClarify && <FeedbackRow threadId={threadId} />}
             </>
           )}
         </Box>

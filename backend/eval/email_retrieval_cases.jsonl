@@ -1,0 +1,8 @@
+{"query": "emails about pull requests", "expected_ids": ["e00", "e03", "e08"], "expected_min": 2}
+{"query": "emails from rahul", "sender": "rahul@company.com", "expected_ids": ["e00"], "expected_min": 1}
+{"query": "emails about deployment issues", "expected_ids": ["e06"], "expected_min": 1}
+{"query": "emails before 2025-02-20", "sent_before": "2025-02-20", "expected_ids": ["e07", "e08", "e09", "e10"], "expected_min": 3}
+{"query": "emails about API problems", "expected_ids": ["e01", "e09"], "expected_min": 1}
+{"query": "emails about security", "expected_ids": ["e05"], "expected_min": 1}
+{"query": "emails about infrastructure or DevOps", "expected_ids": ["e07"], "expected_min": 1}
+{"query": "emails about tasks assigned to rahul", "expected_ids": ["e02"], "expected_min": 1}

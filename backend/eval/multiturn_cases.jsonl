@@ -1,0 +1,10 @@
+{"id": "mt01", "turns": [{"query": "Show me recent pull request emails", "expected_sources": ["email"]}, {"query": "Who raised the security patch PR?", "expected_sources": ["email"]}]}
+{"id": "mt02", "turns": [{"query": "How many employees are in Engineering?", "expected_sources": ["sql"]}, {"query": "Who is their manager?", "expected_sources": ["sql"]}]}
+{"id": "mt03", "turns": [{"query": "What projects are active?", "expected_sources": ["sql"]}, {"query": "Show the budget for those projects", "expected_sources": ["sql"]}]}
+{"id": "mt04", "turns": [{"query": "Find emails about deployment failures", "expected_sources": ["email"]}, {"query": "What ticket was raised for that?", "expected_sources": ["email", "sql"]}]}
+{"id": "mt05", "turns": [{"query": "List open P0 tickets", "expected_sources": ["sql"]}, {"query": "Which employee is assigned to the most urgent one?", "expected_sources": ["sql"]}]}
+{"id": "mt06", "turns": [{"query": "Who sent emails about the LLM gateway?", "expected_sources": ["email"]}, {"query": "What department do they work in?", "expected_sources": ["sql"]}]}
+{"id": "mt07", "turns": [{"query": "What is the Backend Refactor Q1 project about?", "expected_sources": ["sql"]}, {"query": "Who owns it and when did it start?", "expected_sources": ["sql"]}]}
+{"id": "mt08", "turns": [{"query": "Show emails from Raju", "expected_sources": ["email"]}, {"query": "What project is he the owner of?", "expected_sources": ["sql"]}]}
+{"id": "mt09", "turns": [{"query": "Find emails about pull request reviews from last week", "expected_sources": ["email"]}, {"query": "Summarize the key changes mentioned", "expected_sources": ["email"]}]}
+{"id": "mt10", "turns": [{"query": "Which employees report to Ram?", "expected_sources": ["sql"]}, {"query": "Show me their recent emails", "expected_sources": ["email"]}]}

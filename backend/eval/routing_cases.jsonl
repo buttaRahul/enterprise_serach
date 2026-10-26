@@ -1,0 +1,10 @@
+{"query": "Find emails from rahul about pull requests", "expected_sources": ["email"]}
+{"query": "Who manages the DevOps team?", "expected_sources": ["sql"]}
+{"query": "What projects are currently active?", "expected_sources": ["sql"]}
+{"query": "Get emails sent before 2025-02-20", "expected_sources": ["email"]}
+{"query": "Find emails from raju about security patches and show the employee's department", "expected_sources": ["email", "sql"]}
+{"query": "What is the latest news on autonomous vehicles?", "expected_sources": ["web"]}
+{"query": "What services does the company offer?", "expected_sources": ["site"]}
+{"query": "Show me all emails about deployment failures and explain why they happen", "expected_sources": ["email", "web"]}
+{"query": "List employees hired after 2022", "expected_sources": ["sql"]}
+{"query": "What pull requests were raised last week?", "expected_sources": ["email"]}

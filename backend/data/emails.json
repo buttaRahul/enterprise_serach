@@ -1,0 +1,13 @@
+[
+  {"id": "e00", "timestamp": "2025-02-21 09:15:32", "sender": "rahul@company.com",   "content": "Pull Request #10 has been raised for the latest bug fix on validation error for react forms. Please review and approve."},
+  {"id": "e01", "timestamp": "2025-02-21 10:05:14", "sender": "rajesh@company.com",  "content": "Investigating the API response time regression after v2.4.1 deploy. p99 latency jumped to 800 ms. Raised ticket #109 with full traces."},
+  {"id": "e02", "timestamp": "2025-02-20 11:32:45", "sender": "ram@company.com",     "content": "Assigning task #11 to Rahul for the Design System v2 UI improvements. Deadline is end of Friday."},
+  {"id": "e03", "timestamp": "2025-02-20 12:47:21", "sender": "raghu@company.com",   "content": "Pull Request #12 is ready for review. Adds query caching and reduces average DB round-trips by 40%."},
+  {"id": "e04", "timestamp": "2025-02-20 14:03:09", "sender": "raghav@company.com",  "content": "Created ticket #104 for the backend refactor service boundary document. Looking for a volunteer to draft the ADR."},
+  {"id": "e05", "timestamp": "2025-02-20 15:25:34", "sender": "raju@company.com",    "content": "CVE-2025-1234 has been patched and tested. Raising Pull Request #14 for the security hardening sprint. All regression tests green."},
+  {"id": "e06", "timestamp": "2025-02-20 16:12:50", "sender": "ramu@company.com",    "content": "Deployment pipeline failed on Windows agents — intermittent YAML parse error. Opened ticket #102. Temporary workaround: re-trigger the job."},
+  {"id": "e07", "timestamp": "2025-02-19 17:44:12", "sender": "roshan@company.com",  "content": "Submitting ticket #106 to the DevOps team: HPA config for search service needs min-replicas bumped from 2 to 5 ahead of the load test."},
+  {"id": "e08", "timestamp": "2025-02-19 18:56:40", "sender": "rohit@company.com",   "content": "Pull Request #16 — LLM gateway client refactor. Adds retry logic and circuit breaker. Please review before EOD."},
+  {"id": "e09", "timestamp": "2025-02-19 19:30:00", "sender": "rao@company.com",     "content": "LLM gateway latency spike detected — p99 exceeded 3 s for the past hour. Raised ticket #101. Logs show token streaming stalls on large completions."},
+  {"id": "e10", "timestamp": "2025-02-18 19:30:15", "sender": "ramesh@company.com",  "content": "Sharing early findings on the RAG pipeline architecture for the LLM Knowledge Base project. Chunk size of 512 tokens with 10% overlap gives the best retrieval recall on our internal doc corpus."}
+]

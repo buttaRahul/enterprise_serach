@@ -1,27 +1,10 @@
-# Python
 __pycache__/
 *.pyc
-*.pyo
 .venv/
 venv/
-*.egg-info/
-dist/
-build/
-
-# Environment
 .env
-!.env.example
-
-# Data / generated
-backend/data/checkpoints.sqlite*
-backend/data/feedback.sqlite*
-backend/data/demo.db
-
-# Node
+.pytest_cache/
 node_modules/
-frontend/llmapp/dist/
-
-# IDE
-.vscode/
-.idea/
-*.swp
+dist/
+backend/data/*.db
+backend/data/*.sqlite*

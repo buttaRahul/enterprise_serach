@@ -1,6 +1,5 @@
 from __future__ import annotations
 import re
-import textwrap
 import time
 from typing import Optional
 
@@ -35,9 +34,8 @@ def make_safe(
     Parse and validate a SQL statement via AST.
 
     Raises UnsafeQueryError with a typed .kind if the query violates any rule.
-    Returns the sanitised SQL string (with LIMIT injected if missing).
+    Returns the sanitised SQL string (LIMIT injected or capped to max_rows).
     """
-    # Strip trailing semicolons to check for multi-statement
     stripped = sql.strip().rstrip(";")
     if ";" in stripped:
         raise UnsafeQueryError("multi_statement", "Only a single statement is allowed.")
@@ -59,7 +57,10 @@ def make_safe(
         kind = "write_op" if isinstance(tree, (exp.Insert, exp.Update, exp.Delete, exp.Drop, exp.Create)) else "not_select"
         raise UnsafeQueryError(kind, "Only SELECT statements are allowed.")
 
-    # Collect CTE names so they are not flagged as disallowed tables
+    # Reject SELECT ... INTO <table> (SQL Server / PostgreSQL CREATE TABLE AS)
+    if tree.args.get("into"):
+        raise UnsafeQueryError("write_op", "SELECT INTO is not allowed.")
+
     cte_names = {cte.alias.lower() for cte in tree.find_all(exp.CTE)}
 
     if allowed_tables:
@@ -75,9 +76,17 @@ def make_safe(
             if col.name.lower() in forbidden_lower:
                 raise UnsafeQueryError("forbidden_column", f"Column '{col.name}' is not allowed.")
 
-    # Inject LIMIT if missing
-    if tree.args.get("limit") is None:
+    # Inject or cap LIMIT
+    existing = tree.args.get("limit")
+    if existing is None:
         tree.set("limit", exp.Limit(expression=exp.Literal.number(max_rows)))
+    else:
+        try:
+            val = int(existing.expression.this)
+        except Exception:
+            val = max_rows + 1
+        if val > max_rows:
+            tree.set("limit", exp.Limit(expression=exp.Literal.number(max_rows)))
 
     return tree.sql(dialect=dialect)
 
@@ -87,39 +96,49 @@ class Database:
 
     def __init__(
         self,
-        path: str,
+        path_or_url: str,
         dialect: str = "sqlite",
         timeout_s: float = 5.0,
         allowed_tables: list[str] | None = None,
         forbidden_columns: list[str] | None = None,
         max_rows: int = 100,
     ):
-        if dialect == "sqlite":
-            url = f"sqlite:///file:{path}?mode=ro&uri=true"
+        # Accept a full SQLAlchemy URL (already has "://") or a plain file path
+        if "://" in str(path_or_url):
+            url = str(path_or_url)
+            engine_kwargs: dict = {}
+        elif dialect == "sqlite":
+            url = f"sqlite:///file:{path_or_url}?mode=ro&uri=true"
             engine_kwargs = {"connect_args": {"check_same_thread": False}}
         else:
-            url = path
+            url = path_or_url
             engine_kwargs = {}
-        self._engine = create_engine(url, **engine_kwargs)
+
+        self.engine = create_engine(url, **engine_kwargs)
+        self._engine = self.engine  # keep private alias for internal callers
         self._dialect = dialect
         self._timeout_s = timeout_s
         self._allowed_tables = allowed_tables or []
         self._forbidden_columns = forbidden_columns or []
         self._max_rows = max_rows
 
-    def schema(self, tables: Optional[list[str]] = None) -> dict[str, str]:
+    def schema(self, tables: Optional[list[str]] = None) -> str:
         """
-        Return a dict mapping table_name -> DDL-like column description string.
-        Optionally filter to the given table names.
+        Return DDL for all (or the given) tables as a single string.
+
+        Used both by the graph (tables=[...]) and the tests (no args).
         """
-        inspector = sa_inspect(self._engine)
-        result: dict[str, str] = {}
+        inspector = sa_inspect(self.engine)
         all_tables = inspector.get_table_names()
         target = [t for t in all_tables if t in tables] if tables else all_tables
+        parts: list[str] = []
         for tbl in target:
             cols = inspector.get_columns(tbl)
             fks = inspector.get_foreign_keys(tbl)
-            fk_map = {fk["constrained_columns"][0]: fk["referred_table"] for fk in fks if fk["constrained_columns"]}
+            fk_map = {
+                fk["constrained_columns"][0]: fk["referred_table"]
+                for fk in fks if fk["constrained_columns"]
+            }
             col_strs = []
             for c in cols:
                 line = f"  {c['name']} {c['type']}"
@@ -128,11 +147,11 @@ class Database:
                 if c["name"] in fk_map:
                     line += f" REFERENCES {fk_map[c['name']]}"
                 col_strs.append(line)
-            result[tbl] = f"CREATE TABLE {tbl} (\n" + ",\n".join(col_strs) + "\n);"
-        return result
+            parts.append(f"CREATE TABLE {tbl}(\n" + ",\n".join(col_strs) + "\n);")
+        return "\n\n".join(parts)
 
     def query(self, inp: SQLQueryInput) -> dict:
-        """Execute a safe SELECT and return rows as a list of dicts."""
+        """Execute a safe SELECT and return rows + row_count."""
         safe_sql = make_safe(
             inp.sql,
             dialect=self._dialect,
@@ -140,7 +159,7 @@ class Database:
             allowed_tables=self._allowed_tables or None,
             forbidden_columns=self._forbidden_columns or None,
         )
-        with self._engine.connect() as conn:
+        with self.engine.connect() as conn:
             if self._dialect == "sqlite" and self._timeout_s > 0:
                 deadline = time.monotonic() + self._timeout_s
                 raw = conn.connection.dbapi_connection
@@ -154,10 +173,10 @@ class Database:
             finally:
                 if self._dialect == "sqlite" and self._timeout_s > 0:
                     raw.set_progress_handler(None, 0)
-            return {"rows": [dict(r) for r in rows]}
+        result = [dict(r) for r in rows]
+        return {"rows": result, "row_count": len(result)}
 
     def query_tool(self, sql: str) -> str:
-        """Adapter for LangChain StructuredTool."""
+        """Adapter for LangChain StructuredTool (returns JSON string)."""
         import json
-        result = self.query(SQLQueryInput(sql=sql))
-        return json.dumps(result, default=str)
+        return json.dumps(self.query(SQLQueryInput(sql=sql)), default=str)

@@ -5,7 +5,6 @@ import time
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
-from langchain_core.tools import StructuredTool
 
 
 SYSTEM_PROMPT = """\
@@ -20,23 +19,29 @@ For each query:
 Always cite sources where possible. Never make up information not found in the tools.
 """
 
-_MAX_TURNS = 6
+_DEFAULT_MAX_STEPS = 6
 
 
-def run_agent(query: str, services, llm, *, config: dict | None = None) -> dict:
+def run_agent(
+    query: str,
+    llm,
+    tools: list,
+    *,
+    max_steps: int = _DEFAULT_MAX_STEPS,
+    config: dict | None = None,
+) -> dict:
     """
-    Run the v1 ReAct agent using a simple tool-calling loop over langchain_core.
+    Run the v1 ReAct agent using a langchain_core tool-calling loop.
 
-    Returns {"answer": str, "trace": list[dict]}.
+    llm may be our LLMProtocol wrapper (has .chat) or a raw LangChain chat model.
+    Returns {"answer": str, "trace": list[dict], "truncated": bool}.
     """
-    from app.tools import build_tools
+    from app.tools.database import UnsafeQueryError
 
-    lc_tools: list[StructuredTool] = build_tools(services)
-    tool_map = {t.name: t for t in lc_tools}
-
-    # llm here is our LLMProtocol wrapper; get the underlying chat model
-    chat = llm._model if hasattr(llm, "_model") else llm
-    bound = chat.bind_tools(lc_tools)
+    # Accept both our wrapper (llm.chat) and a bare chat model
+    chat = getattr(llm, "chat", llm)
+    bound = chat.bind_tools(tools)
+    tool_map = {t.name: t for t in tools}
 
     messages: list[Any] = [
         SystemMessage(content=SYSTEM_PROMPT),
@@ -45,13 +50,11 @@ def run_agent(query: str, services, llm, *, config: dict | None = None) -> dict:
 
     t0 = time.perf_counter()
     trace: list[dict] = []
+    truncated = False
 
-    for _ in range(_MAX_TURNS):
-        try:
-            response: AIMessage = bound.invoke(messages)
-        except Exception as exc:
-            return {"answer": f"Error: {exc}", "trace": trace}
-
+    # max_steps caps the number of tool calls, not LLM turns
+    while True:
+        response: AIMessage = bound.invoke(messages)
         messages.append(response)
 
         if not response.tool_calls:
@@ -59,26 +62,50 @@ def run_agent(query: str, services, llm, *, config: dict | None = None) -> dict:
 
         for tc in response.tool_calls:
             tool = tool_map.get(tc["name"])
+            ms = int((time.perf_counter() - t0) * 1000)
+
             if tool is None:
-                result = f"Unknown tool: {tc['name']}"
+                status = "error"
+                result: dict = {"error": f"Unknown tool: {tc['name']}"}
             else:
                 try:
-                    result = tool.invoke(tc["args"])
+                    raw = tool.invoke(tc["args"])
+                    result = json.loads(raw) if isinstance(raw, str) else raw
+                    status = "ok"
+                except UnsafeQueryError as exc:
+                    status = "error"
+                    result = {"error": str(exc)}
+                    raw = json.dumps(result)
                 except Exception as exc:
-                    result = f"Tool error: {exc}"
+                    status = "error"
+                    result = {"error": str(exc)}
+                    raw = json.dumps(result)
 
             trace.append({
-                "node": "react",
                 "tool": tc["name"],
                 "tool_input": tc["args"],
-                "ms": int((time.perf_counter() - t0) * 1000),
+                "status": status,
+                "result": result,
+                "ms": ms,
             })
-            messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+            messages.append(ToolMessage(
+                content=raw if isinstance(raw, str) else json.dumps(raw, default=str),
+                tool_call_id=tc["id"],
+            ))
 
-    answer = ""
-    for msg in reversed(messages):
-        if isinstance(msg, AIMessage) and not msg.tool_calls and msg.content:
-            answer = msg.content
+        if len(trace) >= max_steps:
+            truncated = True
             break
 
-    return {"answer": answer, "trace": trace}
+    if truncated:
+        # One final LLM call to get a text answer after budget exhaustion
+        final: AIMessage = bound.invoke(messages)
+        answer = final.content if isinstance(final.content, str) else str(final.content)
+    else:
+        answer = ""
+        for msg in reversed(messages):
+            if isinstance(msg, AIMessage) and not msg.tool_calls and msg.content:
+                answer = msg.content if isinstance(msg.content, str) else str(msg.content)
+                break
+
+    return {"answer": answer, "trace": trace, "truncated": truncated}

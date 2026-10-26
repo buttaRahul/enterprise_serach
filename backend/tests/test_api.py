@@ -38,14 +38,17 @@ class TestHealthEndpoint:
     def test_health(self):
         from app.config import Settings
         from app.main import create_app
+        from tests.conftest import ScriptedChatModel
         settings = Settings()
         settings.agent_mode = "react"
         svc = _make_services()
-        app = create_app(services=svc, llm=None, settings=settings)
+        fake_llm = ScriptedChatModel([])
+        app = create_app(services=svc, llm=fake_llm, settings=settings)
         with TestClient(app) as client:
             r = client.get("/api/health")
             assert r.status_code == 200
             assert r.json()["status"] == "ok"
+            assert "email_search" in r.json()["tools"]
 
 
 class TestChatEndpointGraphMode:

@@ -98,8 +98,9 @@ def link_schema(
         if tbl in cache:
             schemas[tbl] = cache[tbl]
         else:
-            ddl_map = database.schema([tbl])
-            schemas[tbl] = ddl_map.get(tbl, f"-- {tbl} (no schema)")
+            # schema() now returns a single DDL string for the given table(s)
+            ddl = database.schema([tbl])
+            schemas[tbl] = ddl or f"-- {tbl} (no schema)"
             cache[tbl] = schemas[tbl]
 
     return linked, schemas

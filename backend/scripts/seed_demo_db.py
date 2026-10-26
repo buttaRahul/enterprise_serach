@@ -66,6 +66,7 @@ def seed(path: str = DB_PATH) -> None:
             (11, "Ramesh",  "Reddy",   "ramesh@company.com",  "Research Engineer",        "Research",    118000, "2020-12-01", 3),
             (12, "Priya",   "Nair",    "priya@company.com",   "Product Manager",          "Product",     130000, "2021-05-12", 3),
             (13, "Kavita",  "Menon",   "kavita@company.com",  "UX Designer",              "Design",       98000, "2022-11-07", 3),
+            (14, "Ramya",   "Krishnan","ramya@company.com",   "Senior Security Engineer", "Security",    125000, "2019-08-15", 6),
         ],
     )
 

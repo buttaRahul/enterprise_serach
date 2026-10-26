@@ -6,6 +6,22 @@ from pydantic import BaseModel, Field
 from sklearn.metrics.pairwise import cosine_similarity
 
 
+def _chunk(text: str, size: int, overlap: int) -> list[str]:
+    chunks: list[str] = []
+    for para in text.split("\n\n"):
+        para = para.strip()
+        if not para:
+            continue
+        if len(para) <= size:
+            chunks.append(para)
+        else:
+            start = 0
+            while start < len(para):
+                chunks.append(para[start: start + size])
+                start += max(1, size - overlap)
+    return chunks or [text]
+
+
 class CompanySearchInput(BaseModel):
     query: str = Field(..., description="What to search for on the company website")
     top_k: int = Field(3, description="Number of passages to return")
@@ -19,12 +35,31 @@ class CompanySiteIndex:
     Embeddings are computed lazily on first search.
     """
 
-    def __init__(self, passages: list[dict], embedder: Callable[[list[str]], np.ndarray]):
+    def __init__(
+        self,
+        passages_or_urls,
+        embedder: Callable[[list[str]], np.ndarray],
+        *,
+        fetch: Callable[[str], str] | None = None,
+        chunk_size: int = 200,
+        chunk_overlap: int = 20,
+    ):
         """
-        passages: list of {"text": str, "url": str, "title": str}
-        embedder: function that maps list[str] -> ndarray of shape (n, dim)
+        Two calling modes:
+          - passages_or_urls is list[dict] ({"text", "url", "title"}) — used directly.
+          - passages_or_urls is list[str] (URLs) + fetch callable — content is fetched
+            and chunked at construction time.
         """
-        self._passages = passages
+        if fetch is not None:
+            passages = []
+            for url in passages_or_urls:
+                text = fetch(url)
+                chunks = _chunk(text, chunk_size, chunk_overlap)
+                for chunk in chunks:
+                    passages.append({"text": chunk, "url": url, "title": url})
+            self._passages = passages
+        else:
+            self._passages = passages_or_urls
         self._embedder = embedder
         self._embeddings: Optional[np.ndarray] = None
 

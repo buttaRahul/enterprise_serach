@@ -24,12 +24,42 @@ class EmailIndex:
         emails: list[dict],
         embedder: Callable[[list[str]], np.ndarray],
         retrieval_mode: str = "dense",
+        min_score: float = 0.0,
     ):
         self._emails = emails
         self._embedder = embedder
         self._retrieval_mode = retrieval_mode
+        self._min_score = min_score
         self._embeddings: Optional[np.ndarray] = None
         self._hybrid_index = None
+
+    @classmethod
+    def from_json(
+        cls,
+        path,
+        embedder: Callable[[list[str]], np.ndarray],
+        *,
+        min_score: float = 0.0,
+        retrieval_mode: str = "dense",
+    ) -> "EmailIndex":
+        import json
+        from pathlib import Path
+        with open(Path(path)) as f:
+            emails = json.load(f)
+        return cls(emails, embedder, retrieval_mode=retrieval_mode, min_score=min_score)
+
+    @property
+    def emails(self) -> list[dict]:
+        return self._emails
+
+    @property
+    def embedder(self) -> Callable[[list[str]], np.ndarray]:
+        return self._embedder
+
+    @embedder.setter
+    def embedder(self, value: Callable[[list[str]], np.ndarray]) -> None:
+        self._embedder = value
+        self._embeddings = None  # invalidate cache
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -45,7 +75,10 @@ class EmailIndex:
 
     @staticmethod
     def _parse_date(s: str) -> datetime.date:
-        return datetime.strptime(s, "%Y-%m-%d").date()
+        try:
+            return datetime.strptime(s, "%Y-%m-%d").date()
+        except ValueError:
+            raise ValueError(f"Date must be in YYYY-MM-DD format, got: {s!r}")
 
     @staticmethod
     def _email_date(e: dict) -> datetime.date:
@@ -86,6 +119,22 @@ class EmailIndex:
 
         # Step 2: semantic ranking when there is a content query
         if inp.content_query:
+            # Keyword pre-filter when min_score > 0: keeps only emails containing
+            # at least one non-trivial query word, preventing random-high-score results
+            if self._min_score > 0.0:
+                _stopwords = {"a", "an", "the", "is", "in", "of", "for", "and", "or", "to", "with", "on"}
+                query_words = [
+                    w for w in inp.content_query.lower().split()
+                    if len(w) > 2 and w not in _stopwords
+                ]
+                if query_words:
+                    pool = [
+                        e for e in pool
+                        if any(w in e.get("content", "").lower() for w in query_words)
+                    ]
+                if not pool:
+                    return {"count": 0, "emails": []}
+
             self._ensure_embeddings()
             original_ids = {id(e): i for i, e in enumerate(self._emails)}
             pool_idx = np.array([original_ids[id(e)] for e in pool])
@@ -106,6 +155,7 @@ class EmailIndex:
             results = [
                 {**e, "score": float(s)}
                 for e, s in scored[: inp.top_k]
+                if float(s) >= self._min_score
             ]
         else:
             results = pool[: inp.top_k]

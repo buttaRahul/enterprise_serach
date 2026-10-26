@@ -8,7 +8,7 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.config import Settings, settings as _default_settings
 from app.embeddings import default_embedder
@@ -19,11 +19,11 @@ from app.embeddings import default_embedder
 # ---------------------------------------------------------------------------
 
 class SearchRequest(BaseModel):
-    query: str
+    query: str = Field(..., min_length=1)
 
 
 class ChatRequest(BaseModel):
-    query: str
+    query: str = Field(..., min_length=1)
     thread_id: Optional[str] = None
 
 
@@ -101,7 +101,10 @@ def create_app(services=None, llm=None, settings: Settings = _default_settings) 
 
     @app.get("/api/health")
     async def health():
-        return {"status": "ok", "agent_mode": settings.agent_mode}
+        from app.tools import build_tools
+        svc = _state.get("services")
+        tools = [t.name for t in build_tools(svc)] if svc else []
+        return {"status": "ok", "agent_mode": settings.agent_mode, "tools": tools}
 
     # ------------------------------------------------------------------
     # v1 alias: POST /api/search  (ReAct)
@@ -110,10 +113,12 @@ def create_app(services=None, llm=None, settings: Settings = _default_settings) 
     @app.post("/api/search")
     async def search(req: SearchRequest):
         from app.agent import run_agent
+        from app.tools import build_tools
         import asyncio
 
+        tools = build_tools(_state["services"])
         result = await asyncio.to_thread(
-            run_agent, req.query, _state["services"], _state["llm"]
+            run_agent, req.query, _state["llm"], tools
         )
         return result
 
@@ -195,6 +200,8 @@ def create_app(services=None, llm=None, settings: Settings = _default_settings) 
 
         if req.rating not in ("up", "down"):
             raise HTTPException(400, "rating must be 'up' or 'down'")
+        if req.rating == "down" and not (req.correction or "").strip():
+            raise HTTPException(400, "A correction is required for a thumbs-down rating")
 
         # Read question and SQL from the saved thread state — never trust the client
         graph = _state.get("graph")

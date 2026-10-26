@@ -106,7 +106,7 @@ class TestDatabase:
     def test_schema_returns_ddl(self, database):
         schema = database.schema(["employees"])
         assert "employees" in schema
-        assert "first_name" in schema["employees"]
+        assert "first_name" in schema
 
     def test_query_returns_rows(self, database):
         from app.tools.database import SQLQueryInput

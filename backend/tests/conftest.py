@@ -62,30 +62,32 @@ class ScriptedLLM:
 # ScriptedChatModel — LangChain-compatible fake for v1 tests
 # ---------------------------------------------------------------------------
 
-class _FakeAIMessage:
-    def __init__(self, content: str):
-        self.content = content
-
-
-def tool_call(name: str, args: dict) -> dict:
-    """Build a fake LangChain tool-call dict."""
-    return {"name": name, "args": args, "id": f"call_{name}"}
+def tool_call(name: str, args: dict, call_id: str | None = None):
+    """Return an AIMessage with a single tool call — used in v1 agent tests."""
+    from langchain_core.messages import AIMessage
+    cid = call_id or f"call_{name}"
+    return AIMessage(
+        content="",
+        tool_calls=[{"name": name, "args": args, "id": cid, "type": "tool_call"}],
+    )
 
 
 class ScriptedChatModel:
     """
-    Minimal LangChain ChatModel fake that returns scripted strings.
+    Minimal LangChain ChatModel fake that returns scripted messages.
     Not async — used only for synchronous v1 agent tests.
     """
 
-    def __init__(self, responses: list[str]):
+    def __init__(self, responses: list, calls: list | None = None):
         self._responses = list(responses)
+        self.calls = calls if calls is not None else []
 
     def bind_tools(self, tools):  # noqa: ARG002
         return self
 
     def invoke(self, messages, **_):
-        return _FakeAIMessage(self._responses.pop(0))
+        self.calls.append(list(messages))
+        return self._responses.pop(0)
 
     def with_structured_output(self, schema):
         parent = self
@@ -103,6 +105,16 @@ class ScriptedChatModel:
 # ---------------------------------------------------------------------------
 # In-memory SQLite fixture
 # ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session", autouse=True)
+def ensure_demo_db():
+    """Seed the shared demo.db before any test that needs it."""
+    from app.config import BACKEND_DIR
+    db_path = str(BACKEND_DIR / "data" / "demo.db")
+    if not __import__("os").path.exists(db_path):
+        from scripts.seed_demo_db import seed
+        seed(db_path)
+
 
 @pytest.fixture
 def demo_db(tmp_path):
@@ -135,6 +147,11 @@ SAMPLE_EMAILS = [
     {"id": "e04", "timestamp": "2025-02-18 19:30:15", "sender": "ramesh@company.com",
      "content": "Research obstacle detection in autonomous cars for the upcoming project."},
 ]
+
+
+@pytest.fixture
+def embedder():
+    return hashing_embedder
 
 
 @pytest.fixture

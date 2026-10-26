@@ -85,11 +85,27 @@ def make_safe(
 class Database:
     """Read-only SQLite (or other SQLAlchemy) database wrapper."""
 
-    def __init__(self, path: str, dialect: str = "sqlite", timeout_s: float = 5.0):
-        url = f"sqlite:///{path}" if dialect == "sqlite" else path
-        self._engine = create_engine(url, connect_args={"check_same_thread": False})
+    def __init__(
+        self,
+        path: str,
+        dialect: str = "sqlite",
+        timeout_s: float = 5.0,
+        allowed_tables: list[str] | None = None,
+        forbidden_columns: list[str] | None = None,
+        max_rows: int = 100,
+    ):
+        if dialect == "sqlite":
+            url = f"sqlite:///file:{path}?mode=ro&uri=true"
+            engine_kwargs = {"connect_args": {"check_same_thread": False}}
+        else:
+            url = path
+            engine_kwargs = {}
+        self._engine = create_engine(url, **engine_kwargs)
         self._dialect = dialect
         self._timeout_s = timeout_s
+        self._allowed_tables = allowed_tables or []
+        self._forbidden_columns = forbidden_columns or []
+        self._max_rows = max_rows
 
     def schema(self, tables: Optional[list[str]] = None) -> dict[str, str]:
         """
@@ -117,7 +133,13 @@ class Database:
 
     def query(self, inp: SQLQueryInput) -> dict:
         """Execute a safe SELECT and return rows as a list of dicts."""
-        safe_sql = make_safe(inp.sql, dialect=self._dialect)
+        safe_sql = make_safe(
+            inp.sql,
+            dialect=self._dialect,
+            max_rows=self._max_rows,
+            allowed_tables=self._allowed_tables or None,
+            forbidden_columns=self._forbidden_columns or None,
+        )
         with self._engine.connect() as conn:
             if self._dialect == "sqlite" and self._timeout_s > 0:
                 deadline = time.monotonic() + self._timeout_s
